@@ -10,3 +10,4 @@ nosetests.xml
 octodns.egg-info/
 output/
 tmp/
+.vscode/
