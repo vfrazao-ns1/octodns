@@ -29,6 +29,28 @@ class Ns1Provider(BaseProvider):
     SUPPORTS = set(('A', 'AAAA', 'ALIAS', 'CAA', 'CNAME', 'MX', 'NAPTR',
                     'NS', 'PTR', 'SPF', 'SRV', 'TXT'))
     request_cache = {}
+    rate_limits = {
+        'GET': {
+            'Limit': 900,
+            'Period': 300,
+            'Remaining': 900
+        },
+        'POST': {
+            'Limit': 300,
+            'Period': 300,
+            'Remaining': 300
+        },
+        'PUT': {
+            'Limit': 200,
+            'Period': 300,
+            'Remaining': 200
+        },
+        'DELETE': {
+            'Limit': 100,
+            'Period': 200,
+            'Remaining': 100
+        },
+    }
 
     ZONE_NOT_FOUND_MESSAGE = 'server error: zone not found'
 
@@ -191,6 +213,11 @@ class Ns1Provider(BaseProvider):
             if zone.name[:-1] in self.request_cache:
                 nsone_zone = self.request_cache[zone.name[:-1]]
             else:
+                if not self.rate_limits['GET']['Remaining']:
+                    sleep(
+                        self.rate_limits['GET']['Period'] /
+                        self.rate_limits['GET']['Limit']
+                    )
                 nsone_zone = self._client.loadZone(zone.name[:-1])
                 self.request_cache[zone.name[:-1]] = nsone_zone
             records = nsone_zone.data['records']
@@ -211,6 +238,18 @@ class Ns1Provider(BaseProvider):
             records = []
             geo_records = []
             exists = False
+        except RateLimitException as e:
+            limit = float(e.limit)
+            period = float(e.period)
+            self.rate_limits['GET'] = {
+                'Limit': limit,
+                'Period': period,
+                'Remaining': 0
+            }
+            self.log.warn('populate: rate limit encountered, pausing '
+                          'for %.1fs and trying again', period / limit + 1)
+            sleep(period / limit + 1)
+            return self.populate(zone, target, lenient)
 
         before = len(zone.records)
         # geo information isn't returned from the main endpoint, so we need
@@ -312,12 +351,23 @@ class Ns1Provider(BaseProvider):
         params = getattr(self, '_params_for_{}'.format(_type))(new)
         meth = getattr(nsone_zone, 'add_{}'.format(_type))
         try:
+            if not self.rate_limits['PUT']['Remaining']:
+                sleep(
+                    self.rate_limits['PUT']['Period'] /
+                    self.rate_limits['PUT']['Limit']
+                )
             meth(name, **params)
         except RateLimitException as e:
+            limit = float(e.limit)
             period = float(e.period)
+            self.rate_limits['PUT'] = {
+                'Limit': limit,
+                'Period': period,
+                'Remaining': 0
+            }
             self.log.warn('_apply_Create: rate limit encountered, pausing '
-                          'for %ds and trying again', period)
-            sleep(period)
+                          'for %.1fs and trying again', period / limit + 1)
+            sleep(period / limit + 1)
             meth(name, **params)
 
     def _apply_Update(self, nsone_zone, change):
@@ -328,12 +378,23 @@ class Ns1Provider(BaseProvider):
         new = change.new
         params = getattr(self, '_params_for_{}'.format(_type))(new)
         try:
+            if not self.rate_limits['POST']['Remaining']:
+                sleep(
+                    self.rate_limits['POST']['Period'] /
+                    self.rate_limits['POST']['Limit']
+                )
             record.update(**params)
         except RateLimitException as e:
+            limit = float(e.limit)
             period = float(e.period)
+            self.rate_limits['POST'] = {
+                'Limit': limit,
+                'Period': period,
+                'Remaining': 0
+            }
             self.log.warn('_apply_Update: rate limit encountered, pausing '
-                          'for %ds and trying again', period)
-            sleep(period)
+                          'for %.1fs and trying again', period / limit + 1)
+            sleep(period / limit + 1)
             record.update(**params)
 
     def _apply_Delete(self, nsone_zone, change):
@@ -342,12 +403,22 @@ class Ns1Provider(BaseProvider):
         _type = existing._type
         record = nsone_zone.loadRecord(name, _type)
         try:
-            record.delete()
+            if not self.rate_limits['DELETE']['Remaining']:
+                sleep(
+                    self.rate_limits['DELETE']['Period'] /
+                    self.rate_limits['DELETE']['Limit']
+                )
         except RateLimitException as e:
+            limit = float(e.limit)
             period = float(e.period)
+            self.rate_limits['DELETE'] = {
+                'Limit': limit,
+                'Period': period,
+                'Remaining': 0
+            }
             self.log.warn('_apply_Delete: rate limit encountered, pausing '
-                          'for %ds and trying again', period)
-            sleep(period)
+                          'for %.1fs and trying again', period / limit + 1)
+            sleep(period / limit + 1)
             record.delete()
 
     def _apply(self, plan):
@@ -361,6 +432,11 @@ class Ns1Provider(BaseProvider):
             if domain_name in self.request_cache:
                 nsone_zone = self.request_cache[domain_name]
             else:
+                if not self.rate_limits['GET']['Remaining']:
+                    sleep(
+                        self.rate_limits['GET']['Period'] /
+                        self.rate_limits['GET']['Limit']
+                    )
                 nsone_zone = self._client.loadZone(domain_name)
                 self.request_cache[domain_name] = nsone_zone
         except ResourceException as e:
@@ -368,6 +444,18 @@ class Ns1Provider(BaseProvider):
                 raise
             self.log.debug('_apply:   no matching zone, creating')
             nsone_zone = self._client.createZone(domain_name)
+        except RateLimitException as e:
+            limit = float(e.limit)
+            period = float(e.period)
+            self.rate_limits['GET'] = {
+                'Limit': limit,
+                'Period': period,
+                'Remaining': 0
+            }
+            self.log.warn('_apply: rate limit encountered, pausing '
+                          'for %.1fs and trying again', period / limit + 1)
+            sleep(period / limit + 1)
+            self._apply(plan)
 
         for change in changes:
             class_name = change.__class__.__name__
