@@ -28,6 +28,7 @@ class Ns1Provider(BaseProvider):
     SUPPORTS_GEO = True
     SUPPORTS = set(('A', 'AAAA', 'ALIAS', 'CAA', 'CNAME', 'MX', 'NAPTR',
                     'NS', 'PTR', 'SPF', 'SRV', 'TXT'))
+    request_cache = {}
 
     ZONE_NOT_FOUND_MESSAGE = 'server error: zone not found'
 
@@ -187,7 +188,11 @@ class Ns1Provider(BaseProvider):
                        target, lenient)
 
         try:
-            nsone_zone = self._client.loadZone(zone.name[:-1])
+            if zone.name[:-1] in self.request_cache:
+                nsone_zone = self.request_cache[zone.name[:-1]]
+            else:
+                nsone_zone = self._client.loadZone(zone.name[:-1])
+                self.request_cache[zone.name[:-1]] = nsone_zone
             records = nsone_zone.data['records']
 
             # change answers for certain types to always be absolute
@@ -353,7 +358,11 @@ class Ns1Provider(BaseProvider):
 
         domain_name = desired.name[:-1]
         try:
-            nsone_zone = self._client.loadZone(domain_name)
+            if domain_name in self.request_cache:
+                nsone_zone = self.request_cache[domain_name]
+            else:
+                nsone_zone = self._client.loadZone(domain_name)
+                self.request_cache[domain_name] = nsone_zone
         except ResourceException as e:
             if e.message != self.ZONE_NOT_FOUND_MESSAGE:
                 raise
