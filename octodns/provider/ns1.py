@@ -10,6 +10,7 @@ from itertools import chain
 from collections import OrderedDict, defaultdict
 from ns1 import NS1
 from ns1.rest.errors import RateLimitException, ResourceException
+import ns1
 from incf.countryutils import transformations
 from time import sleep
 
@@ -401,7 +402,10 @@ class Ns1Provider(BaseProvider):
         existing = change.existing
         name = self._get_name(existing)
         _type = existing._type
-        record = nsone_zone.loadRecord(name, _type)
+        # record = nsone_zone.loadRecord(name, _type)
+        # Super hacky way of preventing a GET request prior to a DELETE request
+        record = ns1.records.Record(nsone_zone, name, _type)
+        record.data = True
         try:
             if not self.rate_limits['DELETE']['Remaining']:
                 sleep(
