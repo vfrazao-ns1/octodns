@@ -408,6 +408,7 @@ class Ns1Provider(BaseProvider):
                     self.rate_limits['DELETE']['Period'] /
                     self.rate_limits['DELETE']['Limit']
                 )
+            record.delete()
         except RateLimitException as e:
             limit = float(e.limit)
             period = float(e.period)
